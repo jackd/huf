@@ -1,0 +1,5 @@
+include 'configs/base.gin'
+
+batch_size = 32
+dropout_rate = 0.6
+epoch = 12

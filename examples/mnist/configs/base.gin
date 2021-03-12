@@ -1,0 +1,22 @@
+import fit
+import huf.config
+import huf.configurables
+
+include 'huf_config/models/classifier.gin'
+
+net_transform = @net_fun
+net_fun.dropout_rate = %dropout_rate
+train_data = @get_dataset()
+validation_data = @get_dataset()
+
+train_data/get_dataset.split = 'train'
+validation_data/get_dataset.split = 'test'
+get_dataset.batch_size = %batch_size
+optimizer = @optax.adam()
+optax.adam.learning_rate = %learning_rate
+
+# macros make for easier reconfiguration via other gin files of CLI
+batch_size = 64
+epochs = 10
+dropout_rate = 0.5
+learning_rate = 1e-3

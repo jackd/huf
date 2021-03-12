@@ -1,0 +1,18 @@
+import fit
+import huf.config
+import huf.configurables
+
+include 'huf_config/models/classifier.gin'
+
+net_transform = @net_fun
+train_data = @get_dataset()
+validation_data = @get_dataset()
+
+train_data/get_dataset.split = 'train'
+validation_data/get_dataset.split = 'test'
+get_dataset.batch_size = %batch_size
+optimizer = @optax.adam()
+optax.adam.learning_rate = 1e-3
+
+batch_size = 64
+epochs = 10

@@ -1,0 +1,9 @@
+import huf.losses
+import huf.metrics
+
+loss = @huf.losses.sparse_categorical_crossentropy
+huf.losses.sparse_categorical_crossentropy.from_logits = %from_logits
+
+from_logits = True
+
+metrics = {'acc': @huf.metrics.SparseCategoricalAccuracy}
