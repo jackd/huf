@@ -2,8 +2,7 @@ import typing as tp
 
 import gin
 from absl import flags
-
-import huf.config  # pylint:disable=unused-import
+from jax.config import config
 
 flags.DEFINE_multi_string("gin_file", default=[], help="gin files to include")
 flags.DEFINE_multi_string("bindings", default=[], help="Additional gin bindings")
@@ -13,6 +12,7 @@ flags.DEFINE_boolean(
 flags.DEFINE_multi_string(
     "config_path", default=[], help="Additional paths to search for .gin files"
 )
+flags.DEFINE_bool("jax_enable_x64", default=False, help="enable float64")
 
 
 @gin.configurable(module="huf.cli")
@@ -24,6 +24,8 @@ def main(fun: tp.Optional[tp.Callable[[], tp.Any]] = None):
 
 def app_main(args):
     FLAGS = flags.FLAGS
+    if FLAGS.jax_enable_x64:
+        config.update("jax_enable_x64", True)
     files = FLAGS.gin_file + args[1:]
     bindings = FLAGS.bindings
     for path in FLAGS.config_path:

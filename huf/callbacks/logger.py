@@ -97,3 +97,34 @@ class EpochProgbarLogger(Callback):
         self._prog.close()
         self._prog = None
         self._epochs = None
+
+
+class VerboseLogger(Callback):
+    def __init__(self, print_fun: tp.Callable[[str], None] = print):
+        self.print = print_fun
+
+    def on_train_step_end(self, step: int, metrics: Metrics):
+        self.print(f"Train step {step}: {_metrics_str(metrics)}")
+
+    def on_test_step_end(self, step: int, metrics: Metrics):
+        self.print(f"Test step {step}: {_metrics_str(metrics)}")
+
+
+class EpochVerboseLogger(Callback):
+    def __init__(self, print_fun: tp.Callable[[str], None] = print):
+        self.print = print_fun
+
+    def on_epoch_end(
+        self,
+        epoch: int,
+        rng: PRNGKey,
+        state: ModelState,
+        train_metrics: Metrics,
+        validation_metrics: tp.Optional[Metrics] = None,
+    ):
+        lines = [
+            f"Epoch {epoch}",
+            f"Training: {_metrics_str(train_metrics)}",
+            f"Validation: {_metrics_str(validation_metrics)}",
+        ]
+        self.print("\n".join(lines))

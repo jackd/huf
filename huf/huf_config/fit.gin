@@ -16,5 +16,8 @@ huf.models.fit.callbacks = %callbacks
 
 fit_seed = 0
 validation_data = None
-callbacks = @huf.callbacks.ProgbarLogger()
+callbacks = [
+    @huf.callbacks.ProgbarLogger(),
+    @huf.callbacks.TerminateOnNaN(),
+]
 epochs = 1
