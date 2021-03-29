@@ -5,18 +5,19 @@ from functools import partial
 import gin
 import jax
 import jax.numpy as jnp
-import optax
 
 import haiku as hk
+import optax
 from huf import avals, data, module_ops
 from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt
 from huf.types import (
     Example,
-    FitResult,
+    FitState,
     Inputs,
     Labels,
     MetricFactory,
+    Metrics,
     ModelSpec,
     ModelState,
     Params,
@@ -76,26 +77,80 @@ def pack_metrics(*args, **kwargs):
     return wrapped
 
 
+def tie_in_original_fn(f, init_fn, apply_fn):
+    # EXPERIMENTAL: Expose the original function as a private attribute.
+    if isinstance(f, (hk.Transformed, hk.TransformedWithState)):
+        f = getattr(f.init, "_original_fn")
+    init_fn._original_fn = f  # pylint: disable=protected-access
+    apply_fn._original_fn = f  # pylint: disable=protected-access
+
+
+def get_original_fn(f):
+    if isinstance(f, (hk.Transformed, hk.TransformedWithState)):
+        f = f.init
+    return getattr(f, "_original_fn")
+
+
+def _with_is_training(f):
+    def wrapped(*args, is_training: bool, **kwargs):
+        del is_training
+        return f(*args, **kwargs)
+
+    return wrapped
+
+
 @configurable
 def with_is_training(
     f: tp.Union[hk.TransformedWithState, tp.Callable]
 ) -> hk.TransformedWithState:
     """Adds `is_training` (default False) kwarg. The value is not used."""
-    if callable(f):
-        f = hk.transform_with_state(f)
+    if isinstance(f, hk.TransformedWithState):
+        f = get_original_fn(f)
+    assert callable(f)
+    return hk.transform_with_state(_with_is_training(f))
 
-    def init_fn(
-        rng: tp.Optional[tp.Union[PRNGKey, int]], inputs: Inputs, is_training: bool,
-    ) -> tp.Tuple[hk.Params, hk.State]:
-        del is_training
-        return f.init(rng, inputs)
+    # def init_fn(
+    #     rng: tp.Optional[tp.Union[PRNGKey, int]],
+    #     inputs: Inputs,
+    #     is_training: bool,
+    # ) -> tp.Tuple[hk.Params, hk.State]:
+    #     del is_training
+    #     return f.init(rng, inputs)
 
-    def apply_fn(params, inputs: Inputs, is_training: bool):
-        del is_training
-        return f.apply(params, inputs)
+    # def apply_fn(params, inputs: Inputs, is_training: bool):
+    #     del is_training
+    #     return f.apply(params, inputs)
 
-    # hk.tie_in_original_fn(f, init_fn, apply_fn)
-    return hk.TransformedWithState(init_fn, apply_fn)
+    # tie_in_original_fn(f, init_fn, apply_fn)
+    # return hk.TransformedWithState(init_fn, apply_fn)
+
+
+@configurable
+def static_partial(
+    f: tp.Union[hk.TransformedWithState, tp.Callable], **kwargs
+) -> hk.TransformedWithState:
+    if isinstance(f, hk.TransformedWithState):
+        f = get_original_fn(f)
+    assert callable(f)
+
+    return hk.transform_with_state(partial(f, **kwargs))
+    # assert isinstance(f, hk.TransformedWithState)
+
+    # def init_fn(*args, **more_kwargs):
+    #     raise Exception(kwargs)
+    #     more_kwargs.update(kwargs)
+    #     return f.init(*args, **more_kwargs)
+
+    # def apply_fn(*args, **more_kwargs):
+    #     raise Exception(kwargs)
+    #     more_kwargs.update(kwargs)
+    #     return f.apply(*args, **more_kwargs)
+
+    # # transform = hk.TransformedWithState(
+    # #     partial(f.init, **kwargs), partial(f.apply, **kwargs)
+    # # )
+    # tie_in_original_fn(f, init_fn, apply_fn)
+    # return hk.TransformedWithState(init_fn, apply_fn)
 
 
 @configurable
@@ -229,7 +284,7 @@ class Model:
             raise NotImplementedError("Cannot print model summary before compile.")
 
         return hk.experimental.tabulate(
-            self.net_transform,
+            static_partial(self.net_transform, is_training=True),
             columns=(
                 "module",
                 # "config",
@@ -239,10 +294,7 @@ class Model:
                 "params_size",
                 "params_bytes",
             ),
-        )(
-            jax.tree_util.tree_map(avals.zeros_like, self._model_spec.inputs),
-            is_training=True,
-        )
+        )(jax.tree_util.tree_map(avals.zeros_like, self._model_spec.inputs))
 
     def compile(
         self,
@@ -305,7 +357,7 @@ class Model:
         net_state: State,
         validation_data: tp.Iterable,
         callbacks=(),
-    ):
+    ) -> Metrics:
         validation_data = data.as_dataset(validation_data)
         dummy_example = as_example(
             jax.tree_util.tree_map(avals.zeros_like, validation_data.element_spec)
@@ -346,6 +398,65 @@ class Model:
                 callback.on_test_step_end(step, metrics)
 
         return metrics
+
+    def fit_epoch(
+        self,
+        epoch: int,
+        rng: PRNGKey,
+        model_state: ModelState,
+        train_data: tp.Iterable,
+        callbacks: tp.Iterable[Callback] = (),
+        validation_data: tp.Optional[tp.Iterable] = None,
+    ):
+        # does not call callback `on_train_begin` or `on_train_end` methods
+        train_data = data.as_dataset(train_data)
+
+        metrics_state = self._init_metrics_state
+        params = model_state.params
+        net_state = model_state.net_state
+        opt_state = model_state.opt_state
+
+        for callback in callbacks:
+            callback.on_epoch_begin(epoch, rng, model_state)
+
+        for step, example in enumerate(train_data):
+            example = as_example(example)
+            for callback in callbacks:
+                callback.on_train_step_begin(step)
+            rng, rng_ = jax.random.split(rng)
+            (
+                params,
+                net_state,
+                opt_state,
+                metrics_state,
+                preds,
+                loss,
+                train_metrics,
+            ) = self.compiled_train_step(  # pylint: disable=not-callable
+                params,
+                net_state,
+                rng_,
+                opt_state,
+                metrics_state,
+                *example,  # pylint: disable=not-an-iterable
+            )
+            del preds, loss
+            for callback in callbacks:
+                callback.on_train_step_end(step, train_metrics)
+        model_state = ModelState(params, net_state, opt_state)
+        if validation_data is None:
+            validation_metrics = None
+        else:
+            validation_metrics = self._evaluate(
+                model_state.params, model_state.net_state, validation_data, callbacks,
+            )
+
+        for callback in callbacks:
+            callback.on_epoch_end(
+                epoch, rng, model_state, train_metrics, validation_metrics
+            )
+
+        return train_metrics, validation_metrics, model_state
 
     def fit(
         self,
@@ -389,49 +500,19 @@ class Model:
         validation_metrics = None
         try:
             for epoch in range(initial_epoch, epochs):
-                metrics_state = self._init_metrics_state
-                for callback in callbacks:
-                    callback.on_epoch_begin(epoch, rng, model_state)
+                rng, rng_ = jax.random.split(rng)
+                train_metrics, validation_metrics, model_state = self.fit_epoch(
+                    epoch=epoch,
+                    rng=rng_,
+                    model_state=model_state,
+                    train_data=train_data,
+                    validation_data=validation_data,
+                    callbacks=callbacks,
+                )
 
-                for step, example in enumerate(train_data):
-                    example = as_example(example)
-                    for callback in callbacks:
-                        callback.on_train_step_begin(step)
-                    rng, rng_ = jax.random.split(rng)
-                    (
-                        params,
-                        net_state,
-                        opt_state,
-                        metrics_state,
-                        preds,
-                        loss,
-                        train_metrics,
-                    ) = self.compiled_train_step(  # pylint: disable=not-callable
-                        model_state.params,
-                        model_state.net_state,
-                        rng_,
-                        model_state.opt_state,
-                        metrics_state,
-                        *example,  # pylint: disable=not-an-iterable
-                    )
-                    del preds, loss
-                    for callback in callbacks:
-                        callback.on_train_step_end(step, train_metrics)
-                    model_state = ModelState(params, net_state, opt_state)
-                if validation_data is not None:
-                    validation_metrics = self._evaluate(
-                        model_state.params,
-                        model_state.net_state,
-                        validation_data,
-                        callbacks,
-                    )
-                result = FitResult(
+                result = FitState(
                     epoch + 1, rng, model_state, train_metrics, validation_metrics
                 )
-                for callback in callbacks:
-                    callback.on_epoch_end(
-                        epoch, rng, model_state, train_metrics, validation_metrics
-                    )
         except FitInterrupt as interrupt:
             if interrupt.result is not None:
                 result = interrupt.result
@@ -463,3 +544,20 @@ def fit(
         initial_epoch=initial_epoch,
         callbacks=callbacks,
     )
+
+
+@configurable
+def evaluate(
+    model: Model,
+    params: Params,
+    net_state: State,
+    validation_data: tp.Iterable,
+    callbacks: tp.Iterable[Callback] = (),
+):
+    metrics = model.evaluate(
+        params=params,
+        net_state=net_state,
+        validation_data=validation_data,
+        callbacks=callbacks,
+    )
+    return metrics

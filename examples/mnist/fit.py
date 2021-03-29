@@ -2,16 +2,17 @@ from functools import partial
 
 import gin
 import jax
-import optax
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
 import haiku as hk
+import optax
 from huf import callbacks, metrics, models, module_ops, ops
 
 
 @gin.configurable
 def net_fun(inputs, is_training: bool, *, dropout_rate=0.5):
+    assert isinstance(is_training, bool)
     x = hk.Conv2D(16, 3, 2)(inputs)
     del inputs
     x = hk.BatchNorm(True, True, 0.99)(x, is_training=is_training)

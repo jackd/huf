@@ -1,0 +1,9 @@
+import huf.cli
+import huf.tune.utils
+
+huf.cli.main.fun = @huf.tune.utils.run
+huf.tune.utils.run.config = %tune_config
+huf.tune.utils.run.on_done = %on_done
+
+tune_config = {}
+on_done = @huf.tune.utils.summarize_analysis

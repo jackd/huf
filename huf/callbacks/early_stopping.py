@@ -5,7 +5,7 @@ import jax.numpy as jnp
 
 from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt
-from huf.types import FitResult, Metrics, ModelState, PRNGKey
+from huf.types import FitState, Metrics, ModelState, PRNGKey
 
 
 class EarlyStopping(Callback):
@@ -55,7 +55,7 @@ class EarlyStopping(Callback):
             baseline: Baseline value for the monitored quantity.
                 Training will stop if the model doesn't show improvement over the
                 baseline.
-            restore_best: Whether to return FitResult from
+            restore_best: Whether to return `FitState` from
                 the epoch with the best value of the monitored quantity.
                 If False, the model result obtained at the last step of
                 training is used.
@@ -123,7 +123,7 @@ class EarlyStopping(Callback):
             self.best = current
             self.wait = 0
             if self.restore_best:
-                self.best_result = FitResult(
+                self.best_result = FitState(
                     epoch + 1, rng, state, train_metrics, validation_metrics
                 )
         else:

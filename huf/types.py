@@ -31,11 +31,11 @@ class ModelState(tp.NamedTuple):
     opt_state: tp.Any
 
 
-class FitResult(tp.NamedTuple):
+class FitState(tp.NamedTuple):
     epochs: int
     rng: PRNGKey
     model_state: ModelState
-    train_metrics: Metrics
+    train_metrics: tp.Optional[Metrics]
     validation_metrics: tp.Optional[Metrics]
 
 
