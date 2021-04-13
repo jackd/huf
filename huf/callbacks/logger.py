@@ -3,7 +3,7 @@ import typing as tp
 import tqdm
 
 from huf.callbacks.core import Callback
-from huf.types import Metrics, ModelState, PRNGKey
+from huf.types import FitResult, FitState, Metrics
 
 
 def _metrics_str(metrics: Metrics):
@@ -18,36 +18,20 @@ class ProgbarLogger(Callback):
         self._epochs = None
         self._prefix = None
 
-    def on_train_begin(
-        self, epochs: int, steps_per_epoch: tp.Optional[int], state: ModelState
-    ):
+    def on_train_begin(self, epochs: int, steps_per_epoch: tp.Optional[int]):
         self._epochs = epochs
         self._steps_per_epoch = steps_per_epoch
 
-    def on_epoch_begin(self, epoch: int, rng: PRNGKey, state: ModelState):
-        self._prefix = f"Epoch {epoch + 1} / {self._epochs}"
+    def on_epoch_begin(self, state: FitState):
+        self._prefix = f"Epoch {state.epochs + 1} / {self._epochs}"
         self._prog = tqdm.tqdm(desc=self._prefix, total=self._steps_per_epoch)
 
-    def on_epoch_end(
-        self,
-        epoch: int,
-        rng: PRNGKey,
-        state: ModelState,
-        train_metrics: Metrics,
-        validation_metrics: tp.Optional[Metrics] = None,
-    ):
+    def on_epoch_end(self, result: FitResult):
         self._prog.close()
-        if validation_metrics is not None:
-            self.print(f"validation_metrics: {_metrics_str(validation_metrics)}")
+        if result.validation_metrics is not None:
+            self.print(f"validation_metrics: {_metrics_str(result.validation_metrics)}")
 
-    def on_train_end(
-        self,
-        epochs: int,
-        rng: PRNGKey,
-        state: ModelState,
-        train_metrics: Metrics,
-        validation_metrics: tp.Optional[Metrics] = None,
-    ):
+    def on_train_end(self, result: FitResult):
         self._prog.close()
         self._prog = None
         self._epochs = None
@@ -67,33 +51,20 @@ class EpochProgbarLogger(Callback):
         self._prog = None
         self._epochs = None
 
-    def on_train_begin(
-        self, epochs: int, steps_per_epoch: tp.Optional[int], state: ModelState
-    ):
+    def on_train_begin(self, epochs: int, steps_per_epoch: tp.Optional[int]):
         self._epochs = epochs
         self._prog = tqdm.tqdm(total=self._epochs)
 
-    def on_epoch_end(
-        self,
-        epoch: int,
-        rng: PRNGKey,
-        state: ModelState,
-        train_metrics: Metrics,
-        validation_metrics: tp.Optional[Metrics] = None,
-    ):
-        self._prog.n = epoch + 1
-        metrics = train_metrics.copy()
-        metrics.update({f"val_{k}": v for k, v in validation_metrics.items()})
+    def on_epoch_end(self, result: FitResult):
+        self._prog.n = result.state.epochs + 1
+        metrics = result.train_metrics.copy()
+        if result.validation_metrics is not None:
+            metrics.update(
+                {f"val_{k}": v for k, v in result.validation_metrics.items()}
+            )
         self._prog.set_description(_metrics_str(metrics))
 
-    def on_train_end(
-        self,
-        epochs: int,
-        rng: PRNGKey,
-        state: ModelState,
-        train_metrics: Metrics,
-        validation_metrics: tp.Optional[Metrics] = None,
-    ):
+    def on_train_end(self, result: FitResult):
         self._prog.close()
         self._prog = None
         self._epochs = None
@@ -114,17 +85,11 @@ class EpochVerboseLogger(Callback):
     def __init__(self, print_fun: tp.Callable[[str], None] = print):
         self.print = print_fun
 
-    def on_epoch_end(
-        self,
-        epoch: int,
-        rng: PRNGKey,
-        state: ModelState,
-        train_metrics: Metrics,
-        validation_metrics: tp.Optional[Metrics] = None,
-    ):
+    def on_epoch_end(self, result: FitResult):
         lines = [
-            f"Epoch {epoch}",
-            f"Training: {_metrics_str(train_metrics)}",
-            f"Validation: {_metrics_str(validation_metrics)}",
+            f"Epoch {result.state.epochs}",
+            f"Training: {_metrics_str(result.train_metrics)}",
         ]
+        if result.validation_metrics:
+            lines.append(f"Validation: {_metrics_str(result.validation_metrics)}")
         self.print("\n".join(lines))

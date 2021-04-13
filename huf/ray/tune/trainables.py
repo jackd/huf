@@ -47,6 +47,7 @@ class Trainable(tune.Trainable):  # pylint: disable=abstract-method
             callbacks=self.callbacks,
             validation_data=self.validation_data,
         )
+        del train_metrics, validation_metrics
         self.epoch += 1
 
 

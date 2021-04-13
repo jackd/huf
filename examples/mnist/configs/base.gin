@@ -2,7 +2,7 @@ import fit
 import huf.config
 import huf.configurables
 
-include 'huf_config/models/classifier.gin'
+include "huf_config/models/classifier.gin"
 
 net_transform = @net_fun
 net_fun.dropout_rate = %dropout_rate

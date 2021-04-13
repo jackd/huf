@@ -50,3 +50,22 @@ for k in dir(optax):
 def chain_star(transforms: tp.Iterable):
     """optax.chain(*transforms) - with a signature that's easier to configure."""
     return optax.chain(*transforms)
+
+
+@gin.register("list")
+def _list(iterable):
+    return list(iterable)
+
+
+@gin.register("range")
+def _range(start_or_stop, stop=None, step=None):
+    if stop is None:
+        assert step is None
+        return range(start_or_stop)
+    if step is None:
+        return range(start_or_stop, stop)
+
+    return range(start_or_stop, stop, step)
+
+
+gin.register(print)

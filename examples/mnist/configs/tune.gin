@@ -1,22 +1,38 @@
-import huf.tune.models
-import huf.tune.utils
+import huf.experiments
+import huf.ray.tune.callbacks
+import huf.ray.tune.configurables
+import huf.ray.tune.utils
 
-include 'huf_config/tune/fit.gin'
+include 'huf_config/ray/tune/fit.gin'
 include 'configs/base.gin'
+
+huf.experiments.run.fun = @huf.models.fit
 
 tune_config = {
     "dropout_rate": %dropout_rate
 }
 
+inner_callbacks = []
+callbacks = [
+    @huf.ray.tune.callbacks.Checkpointer(),
+    @huf.ray.tune.callbacks.EpochReporter(),
+]
 dropout_rate = @ray.tune.grid_search()
 dropout_rate/ray.tune.grid_search.values = [0.4, 0.5, 0.6]
 
-on_done = @huf.tune.utils.with_best_trial
-huf.tune.utils.with_best_trial.fun = @huf.tune.models.evaluate
-huf.tune.models.fit.keep_checkpoints_num = 1
+huf.experiments.LambdaCallback.on_done = [@huf.ray.tune.utils.with_best_trial, @print]
+huf.ray.tune.utils.with_best_trial.fun = @huf.ray.tune.utils.load_then
+huf.ray.tune.utils.load_then.fun = @huf.models.evaluate
+huf.ray.tune.utils.load_then.checkpoint_loader = @huf.ray.tune.utils.load_model_state
 
-huf.tune.models.evaluate.model = %model
-huf.tune.models.evaluate.validation_data = %validation_data
-huf.tune.models.evaluate.callbacks = %callbacks
+huf.models.evaluate.model = %model
+huf.models.evaluate.validation_data = %test_data
+
+test_data = %validation_data  # dirty hack - should really have a separate test set
 
 epochs = 2  # make things a little faster
+
+ray.tune.run.resources_per_trial = {
+    "cpu": 1,
+    "gpu": 0.3,
+}

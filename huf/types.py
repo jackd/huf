@@ -35,14 +35,20 @@ class FitState(tp.NamedTuple):
     epochs: int
     rng: PRNGKey
     model_state: ModelState
-    train_metrics: tp.Optional[Metrics]
+
+
+class FitResult(tp.NamedTuple):
+    state: FitState
+    train_metrics: Metrics
     validation_metrics: tp.Optional[Metrics]
 
 
 MetricFactory = tp.Callable[[], hk.Module]
 
 AbstractTree = tp.Union[
-    jax.core.AbstractValue, tp.Tuple["AbstractTree"], tp.Mapping[str, "AbstractTree"]
+    jax.core.AbstractValue,
+    tp.Tuple["AbstractTree", ...],
+    tp.Mapping[str, "AbstractTree"],
 ]
 
 
@@ -56,3 +62,66 @@ class ModelSpec(tp.NamedTuple):
     net_state: AbstractTree
     opt_state: AbstractTree
     metrics_state: AbstractTree
+
+
+class Objective(tp.NamedTuple):
+    key: str  # into metrics, e.g. "loss"
+    split: str  # see Splits
+    mode: str  # see Modes
+
+
+class Splits:
+    TRAIN = "train"
+    VALIDATION = "val"
+    TEST = "test"
+
+    @classmethod
+    def all(cls):
+        return (Splits.TRAIN, Splits.VALIDATION, Splits.TEST)
+
+    @classmethod
+    def validate(cls, split: str):
+        if split not in cls.all():
+            raise ValueError(f"invalid split '{split}' - must be one of {cls.all()}")
+
+
+class Modes:
+    MIN = "min"
+    MAX = "max"
+
+    @classmethod
+    def all(cls):
+        return (Modes.MIN, Modes.MAX)
+
+    @classmethod
+    def raise_invalid(cls, mode: str):
+        raise ValueError(f"invalid mode '{mode}' - must be one of {cls.all()}")
+
+    @classmethod
+    def validate(cls, mode: str):
+        if mode not in cls.all():
+            cls.raise_invalid(mode)
+
+    @classmethod
+    def reducer(cls, mode: str):
+        if mode == Modes.MIN:
+            return min
+        if mode == Modes.MAX:
+            return max
+        cls.raise_invalid(mode)
+
+    @classmethod
+    def comparator(cls, mode: str):
+        if mode == Modes.MIN:
+            return jnp.less
+        if mode == Modes.MAX:
+            return jnp.greater
+        cls.raise_invalid(mode)
+
+    @classmethod
+    def default_value(cls, mode: str):
+        if mode == Modes.MIN:
+            return jnp.inf
+        if mode == Modes.MAX:
+            return -jnp.inf
+        cls.raise_invalid(mode)

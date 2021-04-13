@@ -1,10 +1,11 @@
 import typing as tp
 from collections import defaultdict
 
-E = tp.TypeVar("E")
+V = tp.TypeVar("V")
+K = tp.TypeVar("K")
 
 
-def group_by(objs: tp.Iterable[E], key: tp.Callable[[E], tp.Any]):
+def group_by(objs: tp.Iterable[V], key: tp.Callable[[V], K]) -> tp.Dict[K, tp.List[V]]:
     out = defaultdict(list)
     for obj in objs:
         out[key(obj)].append(obj)

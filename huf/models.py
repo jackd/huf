@@ -13,6 +13,7 @@ from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt
 from huf.types import (
     Example,
+    FitResult,
     FitState,
     Inputs,
     Labels,
@@ -352,11 +353,7 @@ class Model:
         return ModelState(params, net_state, opt_state)
 
     def evaluate(
-        self,
-        params: Params,
-        net_state: State,
-        validation_data: tp.Iterable,
-        callbacks=(),
+        self, state: ModelState, validation_data: tp.Iterable, callbacks=(),
     ) -> Metrics:
         validation_data = data.as_dataset(validation_data)
         dummy_example = as_example(
@@ -365,8 +362,12 @@ class Model:
         self.compile(*dummy_example)  # pylint: disable=not-an-iterable
 
         for callback in callbacks:
+            callback.model = self
+        for callback in callbacks:
             callback.on_test_begin()
-        metrics = self._evaluate(params, net_state, validation_data, callbacks)
+        metrics = self._evaluate(
+            state.params, state.net_state, validation_data, callbacks
+        )
         for callback in callbacks:
             callback.on_test_end(metrics)
         return metrics
@@ -401,14 +402,13 @@ class Model:
 
     def fit_epoch(
         self,
-        epoch: int,
-        rng: PRNGKey,
-        model_state: ModelState,
+        fit_state: FitState,
         train_data: tp.Iterable,
-        callbacks: tp.Iterable[Callback] = (),
         validation_data: tp.Optional[tp.Iterable] = None,
-    ):
+        callbacks: tp.Iterable[Callback] = (),
+    ) -> FitResult:
         # does not call callback `on_train_begin` or `on_train_end` methods
+        model_state = fit_state.model_state
         train_data = data.as_dataset(train_data)
 
         metrics_state = self._init_metrics_state
@@ -417,8 +417,11 @@ class Model:
         opt_state = model_state.opt_state
 
         for callback in callbacks:
-            callback.on_epoch_begin(epoch, rng, model_state)
+            callback.on_epoch_begin(fit_state)
 
+        rng = fit_state.rng
+        epoch = fit_state.epochs
+        del fit_state
         for step, example in enumerate(train_data):
             example = as_example(example)
             for callback in callbacks:
@@ -450,25 +453,22 @@ class Model:
             validation_metrics = self._evaluate(
                 model_state.params, model_state.net_state, validation_data, callbacks,
             )
-
+        result = FitResult(
+            FitState(epoch + 1, rng, model_state), train_metrics, validation_metrics
+        )
         for callback in callbacks:
-            callback.on_epoch_end(
-                epoch, rng, model_state, train_metrics, validation_metrics
-            )
-
-        return train_metrics, validation_metrics, model_state
+            callback.on_epoch_end(result)
+        return result
 
     def fit(
         self,
-        rng: PRNGKey,
+        initial_state: tp.Union[int, PRNGKey, FitState],
         train_data: tp.Iterable,
         epochs: int = 1,
         validation_data: tp.Optional[tp.Iterable] = None,
-        initial_state: tp.Optional[ModelState] = None,
-        initial_epoch: int = 0,
         callbacks: tp.Iterable[Callback] = (),
         verbose: bool = True,
-    ):
+    ) -> FitResult:
         train_data = data.as_dataset(train_data)
         try:
             steps_per_epoch = len(train_data)
@@ -487,61 +487,64 @@ class Model:
             jax.tree_util.tree_map(avals.zeros_like, train_data.element_spec)
         )
         self.compile(*dummy_example)  # pylint: disable=not-an-iterable
+        fit_state = get_initial_fit_state(self, dummy_example.inputs, initial_state)
+        del initial_state
         if verbose:
             print(self.model_summary())
-        if initial_state is None:
-            rng, rng_ = jax.random.split(rng)
-            initial_state = self.init(rng_, dummy_example.inputs)
 
-        model_state = initial_state
         for callback in callbacks:
-            callback.on_train_begin(epochs, steps_per_epoch, model_state)
+            callback.model = self
 
-        validation_metrics = None
+        for callback in callbacks:
+            callback.on_train_begin(epochs, steps_per_epoch)
+
         try:
-            for epoch in range(initial_epoch, epochs):
-                rng, rng_ = jax.random.split(rng)
-                train_metrics, validation_metrics, model_state = self.fit_epoch(
-                    epoch=epoch,
-                    rng=rng_,
-                    model_state=model_state,
+            for _ in range(fit_state.epochs, epochs):
+                result = self.fit_epoch(
+                    fit_state,
                     train_data=train_data,
                     validation_data=validation_data,
                     callbacks=callbacks,
                 )
+                fit_state = result.state
 
-                result = FitState(
-                    epoch + 1, rng, model_state, train_metrics, validation_metrics
-                )
         except FitInterrupt as interrupt:
             if interrupt.result is not None:
                 result = interrupt.result
 
         for callback in callbacks:
-            callback.on_train_end(*result)
+            callback.on_train_end(result)
 
         return result
+
+
+def get_initial_fit_state(
+    model: Model, inputs, init: tp.Union[int, PRNGKey, FitState]
+) -> FitState:
+    if isinstance(init, int):
+        init = jax.random.PRNGKey(init)
+    if isinstance(init, jnp.ndarray):
+        rng, rng_ = jax.random.split(init, 2)
+        init = FitState(0, rng, model.init(rng_, inputs))
+    assert isinstance(init, FitState), init
+    return init
 
 
 @configurable
 def fit(
     model: Model,
-    rng: PRNGKey,
+    initial_state: tp.Union[int, PRNGKey, FitState],
     train_data: tp.Iterable,
     epochs: int = 1,
     validation_data: tp.Optional[tp.Iterable] = None,
-    initial_state: tp.Optional[ModelState] = None,
-    initial_epoch: int = 0,
     callbacks: tp.Iterable[Callback] = (),
 ):
     """Configurable version of `Model.fit`."""
     return model.fit(
-        rng=rng,
+        initial_state=initial_state,
         train_data=train_data,
         epochs=epochs,
         validation_data=validation_data,
-        initial_state=initial_state,
-        initial_epoch=initial_epoch,
         callbacks=callbacks,
     )
 
@@ -549,15 +552,11 @@ def fit(
 @configurable
 def evaluate(
     model: Model,
-    params: Params,
-    net_state: State,
+    state: ModelState,
     validation_data: tp.Iterable,
     callbacks: tp.Iterable[Callback] = (),
 ):
     metrics = model.evaluate(
-        params=params,
-        net_state=net_state,
-        validation_data=validation_data,
-        callbacks=callbacks,
+        state, validation_data=validation_data, callbacks=callbacks,
     )
     return metrics

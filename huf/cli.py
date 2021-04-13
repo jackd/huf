@@ -2,7 +2,9 @@ import typing as tp
 
 import gin
 from absl import flags
-from jax.config import config
+from jax.config import config as jax_config
+
+from huf import experiments
 
 flags.DEFINE_multi_string("gin_file", default=[], help="gin files to include")
 flags.DEFINE_multi_string("bindings", default=[], help="Additional gin bindings")
@@ -16,16 +18,19 @@ flags.DEFINE_bool("jax_enable_x64", default=False, help="enable float64")
 
 
 @gin.configurable(module="huf.cli")
-def main(fun: tp.Optional[tp.Callable[[], tp.Any]] = None):
-    if fun is None:
-        raise ValueError("`main.fun` not configured.")
-    return fun()
+def main(
+    fun: tp.Callable[[], tp.Any] = gin.REQUIRED,
+    callbacks: tp.Iterable[experiments.ExperimentCallback] = (
+        experiments.ConfigLogger(),
+    ),
+):
+    return experiments.run(fun, callbacks)
 
 
 def app_main(args):
     FLAGS = flags.FLAGS
     if FLAGS.jax_enable_x64:
-        config.update("jax_enable_x64", True)
+        jax_config.update("jax_enable_x64", True)
     files = FLAGS.gin_file + args[1:]
     bindings = FLAGS.bindings
     for path in FLAGS.config_path:
@@ -33,5 +38,4 @@ def app_main(args):
     gin.parse_config_files_and_bindings(
         files, bindings, finalize_config=FLAGS.finalize_config
     )
-    print(gin.config.config_str())
     main()

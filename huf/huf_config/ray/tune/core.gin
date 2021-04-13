@@ -1,0 +1,29 @@
+import huf.cli
+import huf.experiments
+import huf.ray
+import huf.ray.experiments
+import huf.ray.tune.experiments
+
+huf.cli.main.fun = @huf.ray.tune.experiments.run_many
+huf.cli.main.callbacks = %main_callbacks
+
+huf.ray.tune.experiments.run_many.config = %tune_config
+huf.experiments.run.callbacks = %inner_callbacks
+
+main_callbacks = [
+    @huf.ray.experiments.RayInit(),
+    @huf.experiments.LambdaCallback(),
+]
+
+huf.experiments.LambdaCallback.on_done = [@huf.ray.tune.utils.summarize_analysis, @print]
+
+ray.tune.run.resources_per_trial = {
+    "cpu": %cpus_per_trial,
+    "gpu": %gpus_per_trial,
+}
+
+cpus_per_trial = 1
+gpus_per_trial = 0
+
+inner_callbacks = [@huf.ray.tune.experiments.Reporter()]
+tune_config = {}

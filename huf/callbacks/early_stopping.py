@@ -5,7 +5,8 @@ import jax.numpy as jnp
 
 from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt
-from huf.types import FitState, Metrics, ModelState, PRNGKey
+from huf.objectives import DEFAULT_OBJECTIVE
+from huf.types import FitResult, Modes, Objective, Splits
 
 
 class EarlyStopping(Callback):
@@ -25,19 +26,17 @@ class EarlyStopping(Callback):
 
     def __init__(
         self,
-        monitor: str = "loss",
-        is_validation: bool = True,
+        objective: tp.Union[str, Objective] = DEFAULT_OBJECTIVE,
         min_delta: float = 0.0,
         patience: int = 0,
         verbose: int = 0,
-        mode: str = "auto",
         baseline: tp.Optional[float] = None,
         restore_best: bool = False,
     ):
         """Initialize an EarlyStopping callback.
 
         Arguments:
-            monitor: Quantity to be monitored.
+            objective: Objective to be monitored.
             min_delta: Minimum change in the monitored quantity
                 to qualify as an improvement, i.e. an absolute
                 change of less than min_delta, will count as no
@@ -45,13 +44,6 @@ class EarlyStopping(Callback):
             patience: Number of epochs with no improvement
                 after which training will be stopped.
             verbose: verbosity mode.
-            mode: One of `{"auto", "min", "max"}`. In `min` mode,
-                training will stop when the quantity
-                monitored has stopped decreasing; in `max`
-                mode it will stop when the quantity
-                monitored has stopped increasing; in `auto`
-                mode, the direction is automatically inferred
-                from the name of the monitored quantity.
             baseline: Baseline value for the monitored quantity.
                 Training will stop if the model doesn't show improvement over the
                 baseline.
@@ -61,7 +53,7 @@ class EarlyStopping(Callback):
                 training is used.
         """
         super().__init__()
-        self.monitor = monitor
+        self.objective = objective
         self.patience = patience
         self.verbose = verbose
         self.baseline = baseline
@@ -73,32 +65,15 @@ class EarlyStopping(Callback):
         self.best = None
         self.best_result = None
 
-        self.is_validation = is_validation
-
-        if mode not in ["auto", "min", "max"]:
-            warnings.warn(
-                "EarlyStopping mode %s is unknown, " "fallback to auto mode.", mode
-            )
-            mode = "auto"
-
-        if mode == "min":
-            self.monitor_op = jnp.less
-        elif mode == "max":
-            self.monitor_op = jnp.greater
-        else:
-            if "acc" in self.monitor:
-                self.monitor_op = jnp.greater
-            else:
-                self.monitor_op = jnp.less
+        self.monitor_op = Modes.comparator(objective.mode)
 
         if self.monitor_op is jnp.greater:
             self.min_delta *= 1
         else:
             self.min_delta *= -1
 
-    def on_train_begin(
-        self, epochs: int, steps_per_epoch: tp.Optional[int], state: ModelState
-    ):
+    def on_train_begin(self, epochs: int, steps_per_epoch: tp.Optional[int]):
+        del epochs, steps_per_epoch
         # Allow instances to be re-used
         self.wait = 0
         self.stopped_step = 0
@@ -106,33 +81,26 @@ class EarlyStopping(Callback):
         if self.baseline is not None:
             self.best = self.baseline
         else:
-            self.best = jnp.inf if self.monitor_op is jnp.less else -jnp.inf
+            self.best = Modes.default_value(self.objective.mode)
 
-    def on_epoch_end(
-        self,
-        epoch: int,
-        rng: PRNGKey,
-        state: ModelState,
-        train_metrics: Metrics,
-        validation_metrics: tp.Optional[Metrics] = None,
-    ):
-        current = self.get_monitor_value(train_metrics, validation_metrics)
+    def on_epoch_end(self, result: FitResult):
+        current = self.get_monitor_value(
+            result.train_metrics, result.validation_metrics
+        )
         if current is None:
             return
         if self.monitor_op(current - self.min_delta, self.best):
             self.best = current
             self.wait = 0
             if self.restore_best:
-                self.best_result = FitState(
-                    epoch + 1, rng, state, train_metrics, validation_metrics
-                )
+                self.best_result = result
         else:
             self.wait += 1
             if self.wait >= self.patience:
                 raise FitInterrupt(self.best_result)
 
     def get_monitor_value(self, train_metrics, validation_metrics):
-        if self.is_validation:
+        if self.objective.split == Splits.VALIDATION:
             if validation_metrics is None:
                 warnings.warn(
                     "EarlyStopping condition on `validation_metrics` which is `None`"
@@ -140,13 +108,13 @@ class EarlyStopping(Callback):
             metrics = validation_metrics
         else:
             metrics = train_metrics
-        monitor_value = metrics.get(self.monitor)
+        monitor_value = metrics.get(self.objective.key)
         if monitor_value is None:
-            mode = "validation" if self.is_validation else "train"
             warnings.warn(
-                f"Early stopping conditioned on `{mode}_metrics[{self.monitor}]` "
-                "which is not available. "
-                f"Available `{mode}_metrics` are: {', '.join(metrics.keys())}"
+                f"Early stopping conditioned on `{self.objective.mode}_metrics["
+                f"{self.objective.key}]` which is not available. "
+                f"Available `{self.objective.mode}_metrics` are: "
+                ", ".join(metrics.keys())
             )
 
         return monitor_value

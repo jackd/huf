@@ -1,0 +1,22 @@
+import huf.configurables
+import huf.ray.tune.callbacks
+
+include "huf_config/ray/tune/core.gin"
+include "huf_config/models/base.gin"
+
+huf.ray.tune.utils.configured_trainable.fun = @huf.models.fit
+
+huf.models.fit.train_data = %train_data
+huf.models.fit.validation_data = %validation_data
+huf.models.fit.epochs = %epochs
+huf.models.fit.model = %model
+huf.models.fit.initial_state = %initial_state
+huf.models.fit.train_data = %train_data
+huf.models.fit.validation_data = %validation_data
+huf.models.fit.callbacks = %callbacks
+
+callbacks = (
+    @huf.ray.tune.callbacks.Checkpointer(),
+    @huf.ray.tune.callbacks.EpochReporter(),
+)
+initial_state = 0  # seed
