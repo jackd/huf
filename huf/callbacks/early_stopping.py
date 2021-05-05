@@ -2,7 +2,6 @@ import typing as tp
 import warnings
 
 import jax.numpy as jnp
-
 from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt
 from huf.objectives import DEFAULT_OBJECTIVE
@@ -26,7 +25,7 @@ class EarlyStopping(Callback):
 
     def __init__(
         self,
-        objective: tp.Union[str, Objective] = DEFAULT_OBJECTIVE,
+        objective: Objective = DEFAULT_OBJECTIVE,
         min_delta: float = 0.0,
         patience: int = 0,
         verbose: int = 0,

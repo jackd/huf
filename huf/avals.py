@@ -2,7 +2,6 @@ import typing as tp
 
 import jax
 import jax.numpy as jnp
-
 from huf.types import AbstractTree
 
 _zeros_like = {}
@@ -55,7 +54,9 @@ def abstract_tree(values_tree) -> AbstractTree:
 
 def abstract_eval(fun, *args, **kwargs):
     args_flat, in_tree = jax.api.tree_flatten((args, kwargs))
-    wrapped_fun, out_tree = jax.api.flatten_fun(jax.linear_util.wrap_init(fun), in_tree)
+    wrapped_fun, out_tree = jax.api_util.flatten_fun(
+        jax.linear_util.wrap_init(fun), in_tree
+    )
     out = jax.interpreters.partial_eval.abstract_eval_fun(
         wrapped_fun.call_wrapped, *args_flat
     )

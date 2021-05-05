@@ -6,7 +6,7 @@ from ray import tune
 
 from huf import experiments
 from huf.ray.tune.configurables import run
-from huf.ray.tune.utils import reconfigure, report, summarize_analysis
+from huf.ray.tune.utils import reconfigure, report
 
 configurable = partial(gin.configurable, module="huf.ray.tune.experiments")
 
@@ -15,12 +15,6 @@ configurable = partial(gin.configurable, module="huf.ray.tune.experiments")
 class Reporter(experiments.ExperimentCallback):
     def on_done(self, result: tp.Mapping[str, tp.Any]):
         report(**result)
-
-
-@configurable
-class Summarizer(experiments.ExperimentCallback):
-    def report(self, result: tune.ExperimentAnalysis):
-        summarize_analysis(result)
 
 
 @configurable

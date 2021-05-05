@@ -3,10 +3,10 @@ import typing as tp
 from functools import partial
 
 import gin
-import jax
-import jax.numpy as jnp
 
 import haiku as hk
+import jax
+import jax.numpy as jnp
 import optax
 from huf import avals, data, module_ops
 from huf.callbacks.core import Callback
@@ -489,8 +489,9 @@ class Model:
         self.compile(*dummy_example)  # pylint: disable=not-an-iterable
         fit_state = get_initial_fit_state(self, dummy_example.inputs, initial_state)
         del initial_state
-        if verbose:
-            print(self.model_summary())
+        # TODO: fix model_summary for non-standard pytreenodes
+        # if verbose:
+        #     print(self.model_summary())
 
         for callback in callbacks:
             callback.model = self

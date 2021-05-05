@@ -1,3 +1,4 @@
+import contextlib
 import typing as tp
 from functools import partial
 
@@ -24,6 +25,27 @@ class ExperimentCallback:
 
     def on_exception(self, exception: Exception):
         pass
+
+
+@contextlib.contextmanager
+def experiment_context(
+    callbacks: tp.Union[ExperimentCallback, tp.Iterable[ExperimentCallback]]
+):
+    if not hasattr(callbacks, "__iter__"):
+        callbacks = (callbacks,)
+
+    for callback in callbacks:
+        callback.on_start()
+    try:
+        yield
+    except KeyboardInterrupt:
+        for callback in callbacks:
+            callback.on_interrupt()
+        raise
+    except Exception as e:
+        for callback in callbacks:
+            callback.on_exception(e)
+        raise
 
 
 def maybe_chain(funs: tp.Optional[tp.Union[tp.Callable, tp.Iterable[tp.Callable]]]):
@@ -128,18 +150,8 @@ def run(
     fun: tp.Callable[[], tp.Any] = gin.REQUIRED,
     callbacks: tp.Iterable[ExperimentCallback] = (Logger(),),
 ):
-    for callback in callbacks:
-        callback.on_start()
-    try:
+    with experiment_context(callbacks):
         result = fun()
-        for callback in callbacks:
-            callback.on_done(result)
-        return result
-    except KeyboardInterrupt:
-        for callback in callbacks:
-            callback.on_interrupt()
-        raise
-    except Exception as exception:
-        for callback in callbacks:
-            callback.on_exception(exception)
-        raise
+    for callback in callbacks:
+        callback.on_done(result)
+    return result
