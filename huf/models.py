@@ -1,8 +1,10 @@
 import inspect
+import os
 import typing as tp
 from functools import partial
 
 import gin
+import tqdm
 
 import haiku as hk
 import jax
@@ -152,6 +154,122 @@ def static_partial(
     # # )
     # tie_in_original_fn(f, init_fn, apply_fn)
     # return hk.TransformedWithState(init_fn, apply_fn)
+
+
+@configurable
+class DataBoundModel:
+    """Model-like class that handles own data."""
+
+    def __init__(
+        self,
+        model_fun: tp.Callable[[bool], tp.Tuple[jnp.ndarray, tp.Any]],
+        optimizer: optax.GradientTransformation,
+    ):
+        self._model_transform = hk.transform_with_state(model_fun)
+        self._optimizer = optimizer
+        self._train_step = jax.jit(self.train_step)
+        self._test_step = jax.jit(self.test_step)
+
+    def train_step(
+        self, params: Params, net_state: State, rng: PRNGKey, opt_state: State,
+    ):
+        def update(params, net_state, rng):
+            (loss, aux), net_state = self._model_transform.apply(
+                params, net_state, rng, is_training=True
+            )
+            return loss, (net_state, aux)
+
+        (loss, (net_state, aux)), grad = jax.value_and_grad(update, has_aux=True)(
+            params, net_state, rng
+        )
+        updates, opt_state = self._optimizer.update(grad, opt_state, params)
+        params = optax.apply_updates(params, updates)
+        return params, net_state, opt_state, loss, aux
+
+    def test_step(self, params: Params, net_state: State):
+        rng = None
+        (loss, aux), net_state = self._model_transform.apply(
+            params, net_state, rng, is_training=False
+        )
+        del net_state
+        return loss, aux
+
+    def init(self, rng: PRNGKey) -> ModelState:
+        params, net_state = self._model_transform.init(rng, is_training=True)
+        opt_state = self._optimizer.init(params)
+        return ModelState(params, net_state, opt_state)
+
+    def fit_epoch(
+        self,
+        steps_per_epoch: int,
+        fit_state: FitState,
+        callbacks: tp.Iterable[Callback] = (),
+    ) -> FitResult:
+        assert steps_per_epoch > 0
+        for callback in callbacks:
+            callback.on_epoch_begin(fit_state)
+
+        params, net_state, opt_state = fit_state.model_state
+        rng = fit_state.rng
+
+        for step in range(steps_per_epoch):
+            for callback in callbacks:
+                callback.on_train_step_begin(step)
+
+            rng, rng_ = jax.random.split(rng)
+            params, net_state, opt_state, loss, train_aux = self._train_step(
+                params, net_state, rng_, opt_state
+            )
+            assert "loss" not in train_aux
+            train_aux["loss"] = loss
+            for callback in callbacks:
+                callback.on_train_step_end(step, train_aux)
+        loss, val_aux = self._test_step(params, net_state)
+        assert "loss" not in val_aux
+        val_aux["loss"] = loss
+        result = FitResult(
+            FitState(
+                fit_state.epochs + 1, rng, ModelState(params, net_state, opt_state)
+            ),
+            train_aux,
+            val_aux,
+        )
+        for callback in callbacks:
+            callback.on_epoch_end(result)
+        return result
+
+    def fit(
+        self,
+        epochs: int,
+        steps_per_epoch: int = 1,
+        initial_state: tp.Union[int, PRNGKey, FitState] = 0,
+        callbacks: tp.Iterable[Callback] = (),
+    ) -> FitResult:
+        if isinstance(initial_state, int):
+            initial_state = jax.random.PRNGKey(initial_state)
+        if isinstance(initial_state, jnp.ndarray):
+            rng0, rng1 = jax.random.split(initial_state)
+            initial_state = FitState(0, rng0, self.init(rng1))
+
+        assert isinstance(initial_state, FitState)
+
+        for callback in callbacks:
+            callback.on_train_begin(epochs, steps_per_epoch)
+
+        fit_state = initial_state
+        try:
+            for _ in range(initial_state.epochs, epochs):
+                result = self.fit_epoch(steps_per_epoch, fit_state, callbacks)
+                fit_state = result.state
+
+        except FitInterrupt as interrupt:
+            if interrupt.result is not None:
+                result = interrupt.result
+
+        for callback in callbacks:
+            callback.on_train_end(result)
+
+        return result
 
 
 @configurable
@@ -476,10 +594,10 @@ class Model:
             steps_per_epoch = None
         if validation_data is not None:
             validation_data = data.as_dataset(validation_data)
-            assert train_data.element_spec == validation_data.element_spec, (
-                train_data.element_spec,
-                validation_data.element_spec,
-            )
+            # assert avals_equal(train_data.element_spec, validation_data.element_spec), (
+            #     train_data.element_spec,
+            #     validation_data.element_spec,
+            # )
         if not hasattr(callbacks, "__iter__"):
             callbacks = (callbacks,)
 
@@ -561,3 +679,80 @@ def evaluate(
         state, validation_data=validation_data, callbacks=callbacks,
     )
     return metrics
+
+
+def default_profile_log_dir():
+    log_dir = os.path.join("/tmp", "huf_profiles")
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
+
+
+@configurable
+def profile(
+    model: Model,
+    train_data: tp.Iterable,
+    steps: int = 10,
+    log_dir: tp.Optional[str] = None,
+):
+    log_dir = log_dir or default_profile_log_dir()
+    train_data = data.as_dataset(train_data).repeat()
+
+    def f(params, net_state, rng, opt_state, metrics_state, example):
+        (
+            params,
+            net_state,
+            opt_state,
+            metrics_state,
+            preds,
+            loss,
+            train_metrics,
+        ) = model.compiled_train_step(  # pylint: disable=not-callable
+            params,
+            net_state,
+            rng,
+            opt_state,
+            metrics_state,
+            *example,  # pylint: disable=not-an-iterable
+        )
+        del preds, loss, train_metrics
+        return params, net_state, opt_state, metrics_state
+
+    rng = jax.random.PRNGKey(0)
+    metrics_state = model.init_metrics_state
+    # warm up / initialization
+    for example in train_data.take(1):
+        rng, rng1, rng2 = jax.random.split(rng, 3)
+        params, net_state, opt_state = model.init(rng1, example[0])
+        params, net_state, opt_state, metrics_state = f(
+            params, net_state, rng2, opt_state, metrics_state, example
+        )
+    with jax.profiler.trace(log_dir):
+        for example in tqdm.tqdm(
+            train_data.take(steps), total=steps, desc="Profiling..."
+        ):
+            rng, rng_ = jax.random.split(rng)
+            params, net_state, opt_state, metrics_state = f(
+                params, net_state, rng_, opt_state, metrics_state, example
+            )
+        jax.tree_util.tree_flatten(params)[0][0].block_until_ready()
+    print(f"jax tract written.\nView with `tensorboard --logdir={log_dir}`")
+
+
+@configurable
+def profile_memory(
+    model: Model,
+    train_data: tp.Iterable,
+    log_dir: tp.Optional[str] = None,
+    compiled: bool = False,
+):
+    rng = jax.random.PRNGKey(0)
+    for example in data.as_dataset(train_data).take(1):
+        params, net_state, opt_state = model.init(rng, example[0])
+        metrics_state = model.init_metrics_state
+        fn = model.compiled_train_step if compiled else model.train_step
+        params, *_ = fn(params, net_state, rng, opt_state, metrics_state, *example)
+        jax.tree_util.tree_flatten(params)[0][0].block_until_ready()
+
+    path = os.path.join(log_dir or default_profile_log_dir(), "memory.prof")
+    jax.profiler.save_device_memory_profile(path)
+    print(f"Profile written. View with `pprof --web {path}`")

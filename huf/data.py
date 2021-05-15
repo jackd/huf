@@ -1,9 +1,9 @@
 import abc
 import collections
+import itertools
 import typing as tp
 
 import jax
-
 from huf import avals
 from huf.types import AbstractTree
 
@@ -39,6 +39,12 @@ class Dataset(collections.abc.Iterable):
     @staticmethod
     def from_tf(dataset) -> "Dataset":
         return TfDatasetWrapper(dataset)
+
+    def repeat(self, repeats: tp.Optional[int] = None) -> "Dataset":
+        return RepeatedDataset(self, repeats)
+
+    def take(self, n: int) -> "Dataset":
+        return TakenDataset(self, n)
 
 
 class IterableDataset(Dataset):
@@ -120,6 +126,46 @@ class TfDatasetWrapper(Dataset):
 
     def __len__(self) -> int:
         return len(self._tf_dataset)
+
+
+class RepeatedDataset(Dataset):
+    def __init__(self, base: Dataset, repeats: tp.Optional[int] = None):
+        self._base = base
+        self._repeats = repeats
+
+    @property
+    def element_spec(self) -> AbstractTree:
+        return self._base.element_spec
+
+    def __len__(self) -> tp.Optional[int]:
+        base_len = len(self._base)
+        if self._repeats is not None and base_len:
+            return base_len * self._repeats
+        return None
+
+    def __iter__(self):
+        if self._repeats is None:
+            return iter(itertools.cycle(self._base))
+        return iter(
+            itertools.chain.from_iterable(itertools.repeat(self._base, self._repeats))
+        )
+
+
+class TakenDataset(Dataset):
+    def __init__(self, base: Dataset, n: int):
+        self._base = base
+        self._n = n
+
+    @property
+    def element_spec(self):
+        return self._base.element_spec
+
+    def __len__(self) -> tp.Optional[int]:
+        n = len(self._base)
+        return None if n is None else min(n, self._n)
+
+    def __iter__(self):
+        return iter(itertools.islice(self._base, self._n))
 
 
 def as_dataset(data) -> Dataset:

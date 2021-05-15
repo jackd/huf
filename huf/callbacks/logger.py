@@ -7,7 +7,9 @@ from huf.types import FitResult, FitState, Metrics
 
 
 def _metrics_str(metrics: Metrics):
-    return ", ".join((f"{k}: {metrics[k]:.5f}" for k in sorted(metrics)))
+    return ", ".join(
+        (f"{k}: {metrics[k]:.5f}" for k in sorted(metrics) if metrics[k].size == 1)
+    )
 
 
 class ProgbarLogger(Callback):

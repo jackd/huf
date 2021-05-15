@@ -62,3 +62,11 @@ def abstract_eval(fun, *args, **kwargs):
     )
 
     return jax.tree_util.tree_unflatten(out_tree(), out)
+
+
+def avals_equal(x: AbstractTree, y: AbstractTree):
+    xtree, xnodes = jax.tree_util.tree_flatten(x)
+    ytree, ynodes = jax.tree_util.tree_flatten(y)
+    trees_equal = str(xtree) == str(ytree)  # dirty
+    nodes_equal = xnodes == ynodes
+    return trees_equal and nodes_equal

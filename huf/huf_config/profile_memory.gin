@@ -1,0 +1,15 @@
+import huf.callbacks
+import huf.cli
+import huf.config
+import huf.configurables
+
+include 'huf_config/models/base.gin'
+
+huf.cli.main.fun = @huf.models.profile_memory
+huf.models.profile_memory.model = %model
+huf.models.profile_memory.train_data = %train_data
+huf.models.profile_memory.log_dir = %log_dir
+huf.models.profile_memory.compiled = %compiled
+
+log_dir = None
+compiled = False

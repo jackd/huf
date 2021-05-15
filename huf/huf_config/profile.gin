@@ -1,0 +1,15 @@
+import huf.callbacks
+import huf.cli
+import huf.config
+import huf.configurables
+
+include 'huf_config/models/base.gin'
+
+huf.cli.main.fun = @huf.models.profile
+huf.models.profile.model = %model
+huf.models.profile.train_data = %train_data
+huf.models.profile.steps = %steps
+huf.models.profile.log_dir = %log_dir
+
+log_dir = None
+steps = 10

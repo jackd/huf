@@ -3,9 +3,9 @@ from collections import defaultdict
 from functools import partial
 
 import gin
-import jax.numpy as jnp
 
 import haiku as hk
+import jax.numpy as jnp
 from huf import module_ops, ops
 from huf.types import Labels, Metrics, Preds, SampleWeight, Splits
 
@@ -25,7 +25,12 @@ def get_combined_metrics(
         (Splits.TEST, test_metrics),
     ):
         if mets is not None:
-            metrics.update({f"{split}_{k}": v for k, v in mets.items()})
+            metrics.update(
+                {
+                    f"{split}_{k}": v.item() if v.size == 1 else v
+                    for k, v in mets.items()
+                }
+            )
     return metrics
 
 
@@ -45,6 +50,20 @@ def split_combined_metrics(
                 f"should start with one of {Splits.all()}"
             )
     return all_metrics
+
+
+@configurable
+class UnweightedMean(hk.Module):
+    def __init__(self, fun: tp.Callable[..., jnp.ndarray], name=None, **kwargs):
+        super().__init__(name=name)
+        self._fun = fun
+        self._kwargs = kwargs
+
+    def __call__(
+        self, labels: Labels, preds: Preds, sample_weight: tp.Optional[SampleWeight]
+    ):
+        value = self._fun(labels, preds, **self._kwargs)
+        return module_ops.mean(value)
 
 
 @configurable

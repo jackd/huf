@@ -2,11 +2,13 @@ import typing as tp
 from functools import partial
 
 import gin
-import jax
-import jax.numpy as jnp
+import numpy as np
 
 import haiku as hk
+import jax
+import jax.numpy as jnp
 from huf.types import SampleWeight
+from jax.experimental.sparse_ops import COO, CSC, CSR
 
 configurable = partial(gin.configurable, module="huf.module_ops")
 
@@ -47,8 +49,7 @@ class Mean(hk.Module):
         return mean(value)
 
 
-@configurable
-def dropout(x: jnp.ndarray, rate: float, is_training: bool):
+def _dropout(x: jnp.ndarray, rate: float, is_training: bool):
     if not rate:
         return x
 
@@ -67,3 +68,49 @@ def dropout(x: jnp.ndarray, rate: float, is_training: bool):
         return x
 
     return jax.lax.cond(is_training, if_is_training, otherwise, (x, hk.next_rng_key()))
+
+
+@configurable
+def dropout(x: tp.Union[jnp.ndarray, COO, CSR, CSC], rate: float, is_training: bool):
+    fn = partial(_dropout, rate=rate, is_training=is_training)
+    if isinstance(x, jnp.ndarray):
+        return fn(x)
+    if isinstance(x, COO):
+        return COO((fn(x.data), x.row, x.col), shape=x.shape)
+    if isinstance(x, CSR):
+        return CSR((fn(x.data), x.indices, x.indptr), shape=x.shape)
+    if isinstance(x, CSC):
+        return CSC((fn(x.data), x.indices, x.indptr), shape=x.shape)
+    raise TypeError(f"Unrecognized type for x `{type(x)}`")
+
+
+class Linear(hk.Linear):
+    """
+    Equivalent to hk.Linear but supports anything with `__matmul__` defined.
+
+    Specifically, this means `JAXSparse` are supported.
+    """
+
+    def __call__(self, inputs) -> jnp.ndarray:
+        """Computes a linear transform of the input."""
+        if not inputs.shape:
+            raise ValueError("Input must not be scalar.")
+
+        input_size = self.input_size = inputs.shape[-1]
+        output_size = self.output_size
+        dtype = inputs.dtype
+
+        w_init = self.w_init
+        if w_init is None:
+            stddev = 1.0 / np.sqrt(self.input_size)
+            w_init = hk.initializers.TruncatedNormal(stddev=stddev)
+        w = hk.get_parameter("w", [input_size, output_size], dtype, init=w_init)
+
+        out = inputs @ w
+
+        if self.with_bias:
+            b = hk.get_parameter("b", [self.output_size], dtype, init=self.b_init)
+            b = jnp.broadcast_to(b, out.shape)
+            out = out + b
+
+        return out
