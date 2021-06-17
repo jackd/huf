@@ -4,11 +4,11 @@ import typing as tp
 from functools import partial
 
 import gin
+import jax
+import jax.numpy as jnp
 import tqdm
 
 import haiku as hk
-import jax
-import jax.numpy as jnp
 import optax
 from huf import avals, data, module_ops
 from huf.callbacks.core import Callback
@@ -240,11 +240,13 @@ class DataBoundModel:
 
     def fit(
         self,
-        epochs: int,
+        initial_state: tp.Union[int, PRNGKey, FitState],
+        epochs: int = 1,
         steps_per_epoch: int = 1,
-        initial_state: tp.Union[int, PRNGKey, FitState] = 0,
         callbacks: tp.Iterable[Callback] = (),
     ) -> FitResult:
+        if initial_state is None:
+            initial_state = hk.next_rng_key()
         if isinstance(initial_state, int):
             initial_state = jax.random.PRNGKey(initial_state)
         if isinstance(initial_state, jnp.ndarray):
@@ -327,6 +329,10 @@ class Model:
         self._train_step = jax.jit(self.train_step)
         self._test_step = jax.jit(self.test_step)
         self._update_metrics = jax.jit(self.update_metrics)
+
+    @property
+    def optimizer(self) -> optax.GradientTransformation:
+        return self._optimizer
 
     def train_step(
         self,
@@ -475,7 +481,7 @@ class Model:
     ) -> Metrics:
         validation_data = data.as_dataset(validation_data)
         dummy_example = as_example(
-            jax.tree_util.tree_map(avals.zeros_like, validation_data.element_spec)
+            jax.tree_map(avals.zeros_like, validation_data.element_spec)
         )
         self.compile(*dummy_example)  # pylint: disable=not-an-iterable
 
@@ -496,7 +502,7 @@ class Model:
         net_state: State,
         validation_data: data.Dataset,
         callbacks: tp.Iterable[Callback],
-    ):
+    ) -> Metrics:
         metrics_state = self._init_metrics_state
         metrics = {}
 
@@ -751,7 +757,7 @@ def profile_memory(
         metrics_state = model.init_metrics_state
         fn = model.compiled_train_step if compiled else model.train_step
         params, *_ = fn(params, net_state, rng, opt_state, metrics_state, *example)
-        jax.tree_util.tree_flatten(params)[0][0].block_until_ready()
+        [x.block_until_ready() for x in jax.tree_flatten(params)[0]]
 
     path = os.path.join(log_dir or default_profile_log_dir(), "memory.prof")
     jax.profiler.save_device_memory_profile(path)

@@ -2,6 +2,7 @@ import typing as tp
 
 import jax
 import jax.numpy as jnp
+
 from huf.types import AbstractTree
 
 _zeros_like = {}
@@ -28,6 +29,7 @@ def zeros_like(aval: jax.core.AbstractValue):
 
 
 register_zeros(jax.core.ShapedArray)(lambda x: jnp.zeros(x.shape, x.dtype))
+register_zeros(jax.ShapeDtypeStruct)(lambda x: jnp.zeros(x.shape, x.dtype))
 
 
 def assert_compatible(a: AbstractTree, b: AbstractTree):

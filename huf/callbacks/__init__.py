@@ -6,6 +6,7 @@ from .core import Callback
 from .early_stopping import EarlyStopping
 from .history import History
 from .logger import EpochProgbarLogger, EpochVerboseLogger, ProgbarLogger, VerboseLogger
+from .tensorboard import TensorBoard
 from .terminate_on_nan import TerminateOnNaN
 
 configurable = partial(gin.configurable, module="huf.callbacks")
@@ -18,6 +19,7 @@ EpochVerboseLogger = configurable(EpochVerboseLogger)
 History = configurable(History)
 EarlyStopping = configurable(EarlyStopping)
 TerminateOnNaN = configurable(TerminateOnNaN)
+TensorBoard = configurable(TensorBoard)
 
 __all__ = [
     "Callback",

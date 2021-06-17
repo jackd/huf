@@ -9,12 +9,16 @@ from huf.ray.tune.configurables import run
 from huf.ray.tune.utils import reconfigure, report
 
 configurable = partial(gin.configurable, module="huf.ray.tune.experiments")
+Result = tp.Mapping[str, tp.Any]
 
 
 @configurable
 class Reporter(experiments.ExperimentCallback):
-    def on_done(self, result: tp.Mapping[str, tp.Any]):
-        report(**result)
+    def on_done(self, result: tp.Union[Result, tp.Iterable[tp.Mapping[str, tp.Any]]]):
+        if hasattr(result, "items"):
+            report(**result)
+        for r in result:
+            report(**r)
 
 
 @configurable

@@ -24,7 +24,7 @@ def main(
         experiments.ConfigLogger(),
     ),
 ):
-    return experiments.run(fun, callbacks)
+    return experiments.run(fun=fun, callbacks=callbacks)
 
 
 def app_main(args):

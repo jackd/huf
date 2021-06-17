@@ -17,6 +17,15 @@ def sparse_categorical_accuracy(labels: jnp.ndarray, preds: jnp.ndarray):
 
 
 @configurable
+def multi_class_accuracy(
+    labels: jnp.ndarray, preds: jnp.ndarray, from_logits: bool = False
+):
+    assert labels.shape == preds.shape
+    thresh = 0 if from_logits else 0.5
+    return labels == (preds >= thresh)
+
+
+@configurable
 def mean_sparse_categorical_accuracy(
     labels: jnp.ndarray,
     preds: jnp.ndarray,

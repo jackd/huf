@@ -18,7 +18,9 @@ configurable = partial(gin.configurable, module="huf.ray.tune.callbacks")
 @configurable
 def report_metrics(train_metrics, validation_metrics, test_metrics=None):
     metrics = get_combined_metrics(train_metrics, validation_metrics, test_metrics)
-    tune.report(**{k: v.item() for k, v in metrics.items()})
+    tune.report(
+        **{k: (v.item() if hasattr(v, "item") else v) for k, v in metrics.items()}
+    )
 
 
 @configurable

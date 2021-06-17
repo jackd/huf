@@ -1,7 +1,8 @@
 import huf.configurables
 import huf.models
 
-model = @huf.models.Model()
+model = @gin.singleton()
+model/gin.singleton.constructor = @huf.models.Model
 huf.models.Model.net_transform = %net_transform
 huf.models.Model.loss = %loss
 huf.models.Model.optimizer = %optimizer

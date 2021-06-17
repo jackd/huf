@@ -3,6 +3,8 @@ Register gin bindings for jax, haiku and optax.
 
 Intended to be imported from gin config files rather than python.
 """
+import functools
+import os
 import typing as tp
 
 import gin
@@ -68,4 +70,10 @@ def _range(start_or_stop, stop=None, step=None):
     return range(start_or_stop, stop, step)
 
 
+@gin.register(module="os.path")
+def join_star(args):
+    return os.path.join(*args)
+
+
 gin.register(print)
+gin.register(functools.partial, module="functools")

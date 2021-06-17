@@ -1,8 +1,12 @@
 import contextlib
+import time
 import typing as tp
 from functools import partial
 
 import gin
+import jax
+
+from huf.types import PRNGKey
 
 configurable = partial(gin.configurable, module="huf.experiments")
 
@@ -125,16 +129,19 @@ class OperativeConfigLogger(ExperimentCallback):
 
 @configurable
 class Logger(ExperimentCallback):
-    def __init__(
-        self, print_fun=print,
-    ):
+    def __init__(self, print_fun=print):
         self.print = print_fun
+        self.start_time = None
+        self.stop_time = None
 
     def on_start(self):
+        self.start_time = time.time()
         self.print("Starting experiment")
 
     def on_done(self, result):
-        self.print("Done. result:")
+        self.stop_time = time.time()
+        dt = self.stop_time = self.start_time
+        self.print(f"Experiment finished in {dt:.2f}s. result:")
         self.print(result)
 
     def on_interrupt(self):
@@ -147,11 +154,22 @@ class Logger(ExperimentCallback):
 
 @configurable
 def run(
+    *args,
     fun: tp.Callable[[], tp.Any] = gin.REQUIRED,
     callbacks: tp.Iterable[ExperimentCallback] = (Logger(),),
+    **kwargs,
 ):
     with experiment_context(callbacks):
-        result = fun()
+        result = fun(*args, **kwargs)
     for callback in callbacks:
         callback.on_done(result)
     return result
+
+
+@configurable
+def run_repeated(
+    rng: tp.Union[int, PRNGKey], num_repeats: int, fun: tp.Callable[[PRNGKey], tp.Any],
+):
+    if isinstance(rng, int):
+        rng = jax.random.PRNGKey(rng)
+    return tuple(fun(rng) for rng in jax.random.split(rng, num_repeats))

@@ -2,6 +2,7 @@ import typing as tp
 import warnings
 
 import jax.numpy as jnp
+
 from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt
 from huf.objectives import DEFAULT_OBJECTIVE
@@ -57,6 +58,7 @@ class EarlyStopping(Callback):
         self.verbose = verbose
         self.baseline = baseline
         self.min_delta = abs(min_delta)
+        self.epochs = None
         self.wait = 0
         self.stopped_step = 0
         self.restore_best = restore_best
@@ -72,7 +74,8 @@ class EarlyStopping(Callback):
             self.min_delta *= -1
 
     def on_train_begin(self, epochs: int, steps_per_epoch: tp.Optional[int]):
-        del epochs, steps_per_epoch
+        del steps_per_epoch
+        self.epochs = epochs
         # Allow instances to be re-used
         self.wait = 0
         self.stopped_step = 0
@@ -97,6 +100,8 @@ class EarlyStopping(Callback):
             self.wait += 1
             if self.wait >= self.patience:
                 raise FitInterrupt(self.best_result)
+        if result.state.epochs == self.epochs:
+            raise FitInterrupt(self.best_result)
 
     def get_monitor_value(self, train_metrics, validation_metrics):
         if self.objective.split == Splits.VALIDATION:
