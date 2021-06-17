@@ -1,12 +1,12 @@
 from functools import partial
 
 import gin
+import haiku as hk
 import jax
+import optax
 import tensorflow as tf
 import tensorflow_datasets as tfds
 
-import haiku as hk
-import optax
 from huf import callbacks, metrics, models, module_ops, ops
 
 

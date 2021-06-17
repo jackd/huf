@@ -1,10 +1,9 @@
 import typing as tp
 
+import haiku as hk
 import jax
 import jax.numpy as jnp
 import numpy as np
-
-import haiku as hk
 
 # def _as_iterable(x):
 #     if hasattr(x, "__iter__"):

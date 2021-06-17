@@ -3,9 +3,9 @@ from collections import defaultdict
 from functools import partial
 
 import gin
+import haiku as hk
 import jax.numpy as jnp
 
-import haiku as hk
 from huf import module_ops, ops
 from huf.types import Labels, Metrics, Preds, SampleWeight, Splits
 

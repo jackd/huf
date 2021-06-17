@@ -2,13 +2,13 @@ import typing as tp
 from functools import partial
 
 import gin
-import numpy as np
-
 import haiku as hk
 import jax
 import jax.numpy as jnp
-from huf.types import SampleWeight
+import numpy as np
 from jax.experimental.sparse_ops import COO, CSC, CSR
+
+from huf.types import SampleWeight
 
 configurable = partial(gin.configurable, module="huf.module_ops")
 

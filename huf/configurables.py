@@ -8,9 +8,8 @@ import os
 import typing as tp
 
 import gin
-import jax
-
 import haiku as hk
+import jax
 import optax
 
 # jax configurables

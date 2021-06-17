@@ -1,9 +1,9 @@
+import haiku as hk
 import jax
 import jax.numpy as jnp
 from absl.testing import absltest
 from jax import test_util as jtu
 
-import haiku as hk
 from huf.modules.vmap_linear import VmapLinear
 
 

@@ -3,10 +3,10 @@ import collections
 import itertools
 import typing as tp
 
+import haiku as hk
 import jax
 import jax.numpy as jnp
 
-import haiku as hk
 from huf import avals
 from huf.avals import abstract_eval
 from huf.types import AbstractTree, PRNGKey

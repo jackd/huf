@@ -4,12 +4,12 @@ import typing as tp
 from functools import partial
 
 import gin
+import haiku as hk
 import jax
 import jax.numpy as jnp
+import optax
 import tqdm
 
-import haiku as hk
-import optax
 from huf import avals, data, module_ops
 from huf.callbacks.core import Callback
 from huf.errors import FitInterrupt

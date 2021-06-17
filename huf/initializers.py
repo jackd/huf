@@ -1,6 +1,5 @@
-import jax.numpy as jnp
-
 import haiku as hk
+import jax.numpy as jnp
 
 glorot_uniform = hk.initializers.VarianceScaling(1.0, "fan_avg", "uniform")
 glorot_normal = hk.initializers.VarianceScaling(1.0, "fan_avg", "truncated_normal")
