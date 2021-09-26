@@ -171,7 +171,7 @@ class DataBoundModel:
         self._test_step = jax.jit(self.test_step)
 
     def train_step(
-        self, params: Params, net_state: State, rng: PRNGKey, opt_state: State,
+        self, params: Params, net_state: State, rng: PRNGKey, opt_state: State
     ):
         def update(params, net_state, rng):
             (loss, aux), net_state = self._model_transform.apply(
@@ -187,7 +187,7 @@ class DataBoundModel:
         return params, net_state, opt_state, loss, aux
 
     def test_step(self, params: Params, net_state: State):
-        rng = None
+        rng = jax.random.PRNGKey(0)  # TODO: something better than this?
         (loss, aux), net_state = self._model_transform.apply(
             params, net_state, rng, is_training=False
         )
@@ -366,7 +366,7 @@ class Model:
     def test_step(
         self, params, net_state, metrics_state, inputs, labels=None, sample_weight=None
     ):
-        rng = None
+        rng = jax.random.PRNGKey(0)  # TODO: something better than this?
         is_training = False
         preds, _ = self.net_transform.apply(params, net_state, rng, inputs, is_training)
         loss = self.loss(labels, preds, sample_weight)
@@ -477,7 +477,7 @@ class Model:
         return ModelState(params, net_state, opt_state)
 
     def evaluate(
-        self, state: ModelState, validation_data: tp.Iterable, callbacks=(),
+        self, state: ModelState, validation_data: tp.Iterable, callbacks=()
     ) -> Metrics:
         validation_data = data.as_dataset(validation_data)
         dummy_example = as_example(
@@ -575,7 +575,7 @@ class Model:
             validation_metrics = None
         else:
             validation_metrics = self._evaluate(
-                model_state.params, model_state.net_state, validation_data, callbacks,
+                model_state.params, model_state.net_state, validation_data, callbacks
             )
         result = FitResult(
             FitState(epoch + 1, rng, model_state), train_metrics, validation_metrics
@@ -682,7 +682,7 @@ def evaluate(
     callbacks: tp.Iterable[Callback] = (),
 ):
     metrics = model.evaluate(
-        state, validation_data=validation_data, callbacks=callbacks,
+        state, validation_data=validation_data, callbacks=callbacks
     )
     return metrics
 

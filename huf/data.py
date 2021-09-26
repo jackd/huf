@@ -56,6 +56,35 @@ class Dataset(collections.abc.Iterable):
     def from_tf(dataset) -> "Dataset":
         return TfDatasetWrapper(dataset)
 
+    def to_tf(self):
+        """
+        Convert into a `tf.data.Dataset`.
+
+        In conjunction with `TfDatasetWrapper`, this allows full utilization of the
+        `tf.data` API.
+
+        Args:
+            dataset: `huf.data.Dataset`. Only arbitrarily nested lists/tuples/dicts of
+                regular `jax.numpy.ndarray`s are currently supported.
+            currently supported.
+
+        Returns:
+            Generator-based `tf.data.Dataset` with `assert_cardinality` if known.
+        """
+        import tensorflow as tf  # pylint: disable=import-outside-toplevel
+
+        def gen():
+            return (jax.tree_map(tf.convert_to_tensor, el) for el in self)
+
+        spec = jax.tree_map(
+            lambda x: tf.TensorSpec(x.shape, x.dtype), self.element_spec
+        )
+        tf_dataset = tf.data.Dataset.from_generator(gen, output_signature=spec)
+        size = len(self)
+        if size is not None:
+            tf_dataset = tf_dataset.apply(tf.data.experimental.assert_cardinality(size))
+        return tf_dataset
+
     # transformation methods
 
     def repeat(self, repeats: tp.Optional[int] = None) -> "Dataset":
@@ -69,6 +98,25 @@ class Dataset(collections.abc.Iterable):
 
     def map(self, fn: tp.Callable) -> "Dataset":
         return MappedDataset(self, fn)
+
+
+def save(dataset: Dataset, path: str, compression=None, shard_func=None):
+    import tensorflow as tf  # pylint: disable=import-outside-toplevel
+
+    return tf.data.experimental.save(
+        dataset.to_tf(), path, compression=compression, shard_func=shard_func
+    )
+
+
+def load(path: str, spec, compression=None, reader_func=None):
+    import tensorflow as tf  # pylint: disable=import-outside-toplevel
+
+    spec = jax.tree_map(lambda x: tf.TensorSpec(x.shape, x.dtype), spec)
+    return TfDatasetWrapper(
+        tf.data.experimental.load(
+            path, spec, compression=compression, reader_func=reader_func
+        )
+    )
 
 
 class MappedDataset(Dataset):
@@ -230,6 +278,9 @@ class TfDatasetWrapper(Dataset):
     def __iter__(self):
         return self._tf_dataset.as_numpy_iterator()
 
+    def to_tf(self):
+        return self._tf_dataset
+
     @property
     def element_spec(self) -> AbstractTree:
         from huf.tf import spec_to_aval  # pylint: disable=import-outside-toplevel
@@ -284,13 +335,18 @@ class TakenDataset(Dataset):
         return iter(itertools.islice(self._base, self._n))
 
 
-def as_dataset(data) -> Dataset:
+def as_dataset(data, spec=None) -> Dataset:
     if isinstance(data, Dataset):
+        if spec is not None:
+            assert spec == data.element_spec, (spec, data.element_spec)
         return data
     if hasattr(data, "element_spec"):
+        import tensorflow as tf  # pylint: disable=import-outside-toplevel
+
+        assert isinstance(data, tf.data.Dataset), type(data)
         return TfDatasetWrapper(data)
     if hasattr(data, "__iter__"):
-        return IterableDataset(data)
+        return IterableDataset(data, spec)
     raise TypeError(f"data must be a Dataset, tf.data.Dataset or iterable, got {data}")
 
 
