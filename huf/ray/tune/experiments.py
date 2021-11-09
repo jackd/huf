@@ -23,7 +23,9 @@ class Reporter(experiments.ExperimentCallback):
 
 @configurable
 def run_many(
-    *, config: tp.Optional[tp.Mapping] = None, **kwargs,
+    *,
+    config: tp.Optional[tp.Mapping] = None,
+    **kwargs,
 ) -> tune.ExperimentAnalysis:
     def trainable(config, _base_config):
         reconfigure(_base_config, config)

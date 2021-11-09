@@ -36,7 +36,9 @@ def mean_sparse_categorical_accuracy(
 
 @configurable
 def sparse_categorical_crossentropy(
-    labels: jnp.ndarray, preds: jnp.ndarray, from_logits: bool = False,
+    labels: jnp.ndarray,
+    preds: jnp.ndarray,
+    from_logits: bool = False,
 ) -> jnp.ndarray:
     if from_logits:
         preds = jax.nn.log_softmax(preds)

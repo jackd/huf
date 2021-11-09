@@ -138,7 +138,8 @@ def update_config(config: tp.Mapping[str, tp.Any]):
 
 
 def reconfigure(
-    base_config: tp.Optional[str], config: tp.Mapping[str, tp.Any],
+    base_config: tp.Optional[str],
+    config: tp.Mapping[str, tp.Any],
 ):
     with gin.unlock_config():
         if base_config is not None:

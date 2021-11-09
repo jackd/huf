@@ -385,7 +385,9 @@ class SequenceDataset(Dataset):
 
 class ShuffledSequenceDataset(Dataset):
     def __init__(
-        self, data, key: tp.Union[int, PRNGKey],
+        self,
+        data,
+        key: tp.Union[int, PRNGKey],
     ):
         if not isinstance(data, SequenceDataset):
             data = SequenceDataset(data)

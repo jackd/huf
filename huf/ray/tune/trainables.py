@@ -21,7 +21,10 @@ class Trainable(tune.Trainable):  # pylint: disable=abstract-method
         self, config, base_config: str = "", **kwargs
     ):
         gin.parse_config(
-            [base_config, *(f"{k} = {v}" for k, v in config.items()),]
+            [
+                base_config,
+                *(f"{k} = {v}" for k, v in config.items()),
+            ]
         )
         self.model: models.Model = _get_or_macro(kwargs, "model")
         self.rng = _get_or_macro(kwargs, "rng")

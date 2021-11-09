@@ -168,7 +168,9 @@ def run(
 
 @configurable
 def run_repeated(
-    rng: tp.Union[int, PRNGKey], num_repeats: int, fun: tp.Callable[[PRNGKey], tp.Any],
+    rng: tp.Union[int, PRNGKey],
+    num_repeats: int,
+    fun: tp.Callable[[PRNGKey], tp.Any],
 ):
     if isinstance(rng, int):
         rng = jax.random.PRNGKey(rng)

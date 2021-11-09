@@ -371,7 +371,7 @@ class Model:
         preds, _ = self.net_transform.apply(params, net_state, rng, inputs, is_training)
         loss = self.loss(labels, preds, sample_weight)
         metrics, metrics_state = self.update_metrics(
-            metrics_state, preds, labels, sample_weight, loss,
+            metrics_state, preds, labels, sample_weight, loss
         )
         return metrics_state, preds, loss, metrics
 
