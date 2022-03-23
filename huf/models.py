@@ -7,6 +7,7 @@ import gin
 import haiku as hk
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 import tqdm
 
@@ -211,7 +212,7 @@ class DataBoundModel:
 
         params, net_state, opt_state = fit_state.model_state
         rng = fit_state.rng
-
+        train_aux = None
         for step in range(steps_per_epoch):
             for callback in callbacks:
                 callback.on_train_step_begin(step)
@@ -224,6 +225,7 @@ class DataBoundModel:
             train_aux["loss"] = loss
             for callback in callbacks:
                 callback.on_train_step_end(step, train_aux)
+        assert train_aux is not None
         loss, val_aux = self._test_step(params, net_state)
         assert "loss" not in val_aux
         val_aux["loss"] = loss
@@ -245,6 +247,7 @@ class DataBoundModel:
         steps_per_epoch: int = 1,
         callbacks: tp.Iterable[Callback] = (),
     ) -> FitResult:
+        result = None
         if initial_state is None:
             initial_state = hk.next_rng_key()
         if isinstance(initial_state, int):
@@ -268,10 +271,25 @@ class DataBoundModel:
             if interrupt.result is not None:
                 result = interrupt.result
 
+        assert result is not None
         for callback in callbacks:
             callback.on_train_end(result)
 
         return result
+
+
+def dummy_model_summary(model_state: ModelState):
+    params, _ = jax.tree_flatten(model_state.params)
+    net_state, _ = jax.tree_flatten(model_state.net_state)
+    train_params = sum((np.prod(p.shape) for p in params))
+    state_params = sum((np.prod(p.shape) for p in net_state))
+
+    return f"""\
+Dummy model summary:
+    trainable_parameters: {train_params}
+    state_parameters    : {state_params}
+    total_parameters    : {train_params + state_params}
+"""
 
 
 @configurable
@@ -309,9 +327,9 @@ class Model:
         del net_args
         self.net_transform = net_transform
         self.loss = loss
-        if hasattr(metrics, "items"):
+        if isinstance(metrics, tp.Mapping):
             metrics = pack_metrics(**metrics)
-        elif hasattr(metrics, "__iter__"):
+        elif isinstance(metrics, tp.Iterable):
             metrics = pack_metrics(*metrics)
         elif metrics is None:
             metrics = pack_metrics()
@@ -319,10 +337,10 @@ class Model:
             assert callable(metrics)
         metrics = hk.transform_with_state(metrics)
         self._optimizer = optimizer
-        self._metrics = metrics
-        self._train_step = None
-        self._test_step = None
-        self._update_metrics = None
+        self._metrics: hk.TransformedWithState = metrics
+        # self._train_step = None
+        # self._test_step = None
+        # self._update_metrics = None
         self._model_spec = None
         self._init_metrics_state = None
 
@@ -600,10 +618,6 @@ class Model:
             steps_per_epoch = None
         if validation_data is not None:
             validation_data = data.as_dataset(validation_data)
-            # assert avals_equal(train_data.element_spec, validation_data.element_spec), (
-            #     train_data.element_spec,
-            #     validation_data.element_spec,
-            # )
         if not hasattr(callbacks, "__iter__"):
             callbacks = (callbacks,)
 
@@ -614,9 +628,11 @@ class Model:
         fit_state = get_initial_fit_state(self, dummy_example.inputs, initial_state)
         del initial_state
         # TODO: fix model_summary for non-standard pytreenodes
-        # if verbose:
-        #     print(self.model_summary())
-
+        if verbose:
+            try:
+                print(self.model_summary())
+            except Exception:
+                print(dummy_model_summary(fit_state.model_state))
         for callback in callbacks:
             callback.model = self
 

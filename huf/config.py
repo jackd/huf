@@ -4,8 +4,8 @@ Can be imported from `gin` to add directory to gin search path.
 Example config file:
 
 ```gin
-import huf.config
-include "huf_config/models/classifier.gin"
+import grax.config
+include "grax_config/profile.gin"
 ...
 ```
 
